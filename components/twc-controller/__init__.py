@@ -105,7 +105,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_RESTORE_VALUE, default=True): cv.boolean,
             cv.Optional(CONF_UNIT_OF_MEASUREMENT, default=UNIT_AMPERE): cv.one_of(UNIT_AMPERE),
             cv.Optional(CONF_PASSIVE_MODE, default=0): cv.int_range(min=0, max=1),
-            cv.Required(CONF_FLOW_CONTROL_PIN): pins.gpio_output_pin_schema,
+            cv.Optional(CONF_FLOW_CONTROL_PIN): pins.gpio_output_pin_schema,
             cv.Optional(CONF_CURRENT): sensor.sensor_schema(
                 unit_of_measurement=UNIT_AMPERE,
                 icon=ICON_CURRENT_AC,
@@ -228,5 +228,6 @@ async def to_code(config):
     for key in TEXT_TYPES:
         await setup_text_sensor(config, key, num_var)
 
-    pin = await gpio_pin_expression(config[CONF_FLOW_CONTROL_PIN])
-    cg.add(num_var.set_flow_control_pin(pin))
+    if "flow_control_pin" in config:
+        pin = yield cg.get_variable(config["flow_control_pin"])
+        cg.add(var.set_flow_control_pin(pin))
