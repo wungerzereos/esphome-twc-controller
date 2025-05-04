@@ -131,12 +131,20 @@ namespace esphome {
         // This is run via the main arduino loop() to actually receive data and do something with it
         void TeslaController::Handle() {
             uint8_t receivedChar;
+            
+            // Add additional debug for serial availability
+            static unsigned long last_log = 0;
+            unsigned long now = millis();
+            if (now - last_log > 5000) {  // Print every 5 seconds to avoid flooding the log
+                ESP_LOGD(TAG, "Serial available check - Bytes available: %d", serial_->available());
+                last_log = now;
+            }
 
             while (serial_->available()) {
                 serial_->read_byte(&receivedChar);
                 
-                // Log incoming bytes at VERBOSE level
-                ESP_LOGV(TAG, "Received byte: 0x%02X", receivedChar);
+                // Log incoming bytes at DEBUG level to ensure visibility
+                ESP_LOGD(TAG, "Received byte: 0x%02X", receivedChar);
 
                 if (receive_index_ > MAX_PACKET_LENGTH-1) {
                     ESP_LOGE(TAG, "Packet length exceeded");

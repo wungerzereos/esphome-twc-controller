@@ -36,7 +36,6 @@ twc-controller:
   max_current: 32
   set_current: 6
   twc_id: 0xAB32
-  flow_control_pin: 18
   current:
     name: "Charging Current"
   max_allowable_current:
