@@ -37,13 +37,14 @@ namespace esphome {
             max_current_(0),
             min_current_(0),
             stopstart_delay_(0),
-            debug_(false),
+            debug_(true),  // Enable debug by default for more visibility
             passive_mode_(passive_mode)
         {
         }
 
         void TeslaController::Begin() {
             ESP_LOGD(TAG, "Starting Tesla Controller... ");
+            ESP_LOGI(TAG, "*** IMPORTANT: For RS485 modules with A+/B- labeling: Connect A+ to TWC A, B- to TWC B ***");
 
             // Register callbacks for IO
             controller_io_->onCurrentMessage([this](uint8_t current){ this->SetCurrent(current); });
