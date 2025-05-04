@@ -229,5 +229,5 @@ async def to_code(config):
         await setup_text_sensor(config, key, num_var)
 
     if "flow_control_pin" in config:
-        pin = yield cg.get_variable(config["flow_control_pin"])
-        cg.add(var.set_flow_control_pin(pin))
+        pin = await cg.get_variable(config[CONF_FLOW_CONTROL_PIN])
+        cg.add(num_var.set_flow_control_pin(pin))
