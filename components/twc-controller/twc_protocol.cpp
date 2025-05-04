@@ -134,6 +134,9 @@ namespace esphome {
 
             while (serial_->available()) {
                 serial_->read_byte(&receivedChar);
+                
+                // Log incoming bytes at VERBOSE level
+                ESP_LOGV(TAG, "Received byte: 0x%02X", receivedChar);
 
                 if (receive_index_ > MAX_PACKET_LENGTH-1) {
                     ESP_LOGE(TAG, "Packet length exceeded");
@@ -145,43 +148,36 @@ namespace esphome {
                     case SLIP_END:
                         if (message_started_) {
                             if (receive_index_ <= 2) {
-                                // TODO: can this be improved?  It seems a bit arbitary to just try and
-                                // detect small packets as errors.  The byte after the end frame always seems
-                                // to be a fairly high number (>= 0xFC).  I'm guessing it's meant to be 0xFF but
-                                // the last 1-2 bits are being dropped.  Maybe a better way would be to see if there is a
-                                // byte > 0xF0 but this could be caught out by data corruption too.
-
+                                ESP_LOGD(TAG, "Received SLIP_END but packet too small (%d bytes), resetting", receive_index_);
                                 // It's likely there was a corrupt start frame and so we're flipped
                                 // and thinking that the end is the start instead.  Reset this to be the start
                                 receive_index_ = 0;
                                 break;
                             }
+                            ESP_LOGD(TAG, "Received complete packet of %d bytes", receive_index_);
                             ProcessPacket(receive_buffer_, receive_index_);
 
                             message_started_ = false;
                             receive_index_ = 0;
                             break;
                         } else {
+                            ESP_LOGD(TAG, "Starting new packet");
                             message_started_ = true;
                             receive_index_ = 0;
                         }
                         break;
 
                     case SLIP_ESC:
-                        // Use readBytes rather than read so that this blocks.  Previously using
-                        // read, it would try to read too fast before the secondary had sent the next
-                        // byte and this would fall through to default.  This meant bytes were not being
-                        // decoded and the next character was appearing in the packet rather than the
-                        // decoded character.
-
-                        // Check if readBytes returned 1 character.  If it didn't, it means
-                        // the timeout was hit and therefore this should be discarded (dropping)
-                        // the whole packet
+                        ESP_LOGV(TAG, "Received escape character");
+                        
+                        // Check if readBytes returned 1 character
                         if (serial_->read_array(&receivedChar, 1) != 1) {
-                            ESP_LOGE(TAG, "Error while receiving packet data for a packet");
+                            ESP_LOGE(TAG, "Error while receiving packet data - timeout waiting for escaped byte");
                             return;
                         }
 
+                        ESP_LOGV(TAG, "Received escaped byte: 0x%02X", receivedChar);
+                        
                         switch (receivedChar) {
                             case SLIP_ESC_END:
                                 receive_buffer_[receive_index_++] = SLIP_END;
@@ -192,16 +188,18 @@ namespace esphome {
                                 break;
 
                             default:
+                                ESP_LOGE(TAG, "Unknown escape sequence: 0x%02X", receivedChar);
                                 break;
-                                // TODO: This should be an error
                         }
                         break;
 
                     default:
                         if (message_started_) {
                             receive_buffer_[receive_index_++] = receivedChar;
-                        } // else disgard - probably corruption or started receiving
-                        // in the middle of a message
+                            ESP_LOGV(TAG, "Added byte to buffer at index %d", receive_index_-1);
+                        } else {
+                            ESP_LOGV(TAG, "Discarded byte - no message started");
+                        }
                 }
             }
         }
@@ -247,7 +245,7 @@ namespace esphome {
             } else if (current > MAX_CURRENT) {
                 available_current_ = MAX_CURRENT;
             } else if (current < MIN_CURRENT) {
-                available_current_ = MIN_CURRENT;
+                available_current_ = MINIMUM;
             }*/
         }
 
@@ -441,20 +439,6 @@ namespace esphome {
                 c->phase1_current = current;
                 controller_io_->writeChargerCurrent(power_state->twcid, current, 1);
                 UpdateTotalPhaseCurrent(1);
-            };
-
-            current = power_state_payload->phase2_current/2;
-            if (current != c->phase2_current) {
-                c->phase2_current = current;
-                controller_io_->writeChargerCurrent(power_state->twcid, current, 2);
-                UpdateTotalPhaseCurrent(2);
-            };
-
-            current = power_state_payload->phase3_current/2;
-            if (current != c->phase3_current) {
-                c->phase3_current = current;
-                controller_io_->writeChargerCurrent(power_state->twcid, current, 3);
-                UpdateTotalPhaseCurrent(3);
             };
 
             if (debug_) {
@@ -776,6 +760,17 @@ namespace esphome {
                     ESP_LOGD(TAG, "WARNING! WRITE COMMANDS ATTEMPTED!  THESE CAN PERMANENTLY BREAK YOUR TWC.  COMMANDS BLOCKED!");
                     return;
             }
+            
+            ESP_LOGD(TAG, "Sending command: 0x%04X, Length: %d bytes", command, length);
+            
+            // Log original packet
+            std::string packet_hex = "";
+            char byte_str[4];
+            for (i = 0; i < length; i++) {
+                sprintf(byte_str, "%02X ", packet[i]);
+                packet_hex += byte_str;
+            }
+            ESP_LOGV(TAG, "Original packet: %s", packet_hex.c_str());
 
             // Could probably get rid of the buffer and write directly to the serial port
             // but this way lets the value of the buffer be printed for debugging more easily
@@ -797,13 +792,13 @@ namespace esphome {
             outputBuffer[j++] = SLIP_END;
             outputBuffer[j++] = 0xFF;
 
-            if (debug_) {
-                ESP_LOGV(TAG, "Sent packet: ");
-                for (uint8_t i = 0; i < j; i++) {
-                    ESP_LOGD(TAG, "%02x", outputBuffer[i]);
-                }
-
+            // Log the encoded packet about to be sent on the wire
+            std::string output_hex = "";
+            for (uint8_t i = 0; i < j; i++) {
+                sprintf(byte_str, "%02X ", outputBuffer[i]);
+                output_hex += byte_str;
             }
+            ESP_LOGD(TAG, "Sending SLIP encoded data: %s", output_hex.c_str());
 
             if (this->flow_control_pin_ != nullptr)
                 this->flow_control_pin_->digital_write(true);
@@ -813,6 +808,8 @@ namespace esphome {
 
             if (this->flow_control_pin_ != nullptr)
                 this->flow_control_pin_->digital_write(false);
+                
+            ESP_LOGD(TAG, "Data sent, transceiver put back into receive mode");
         }
 
         void TeslaController::SetMaxCurrent(uint8_t max_current) {

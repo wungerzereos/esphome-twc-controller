@@ -147,7 +147,15 @@ namespace esphome {
         }
 
         void TWCController::writeRawPacket(uint8_t *data, size_t length) {
-
+            std::string packet_str = "";
+            char byte_str[4];
+            
+            for (size_t i = 0; i < length; i++) {
+                sprintf(byte_str, "%02X ", data[i]);
+                packet_str += byte_str;
+            }
+            
+            ESP_LOGD(TAG, "Raw packet: %s", packet_str.c_str());
         }
 
         void TWCController::onCurrentMessage(std::function<void(uint8_t)> callback) {
